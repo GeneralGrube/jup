@@ -1,0 +1,178 @@
+[
+  {
+    "employee_id": 4,
+    "pin": "4827",
+    "is_admin": true,
+    "team_id": "GASTRO",
+    "sub_skills": ["ENDO_INTERV", "ENDO_BASIC", "SONO", "AMB_IBD"],
+    "std_absences": []
+  },
+  {
+    "employee_id": 5,
+    "pin": "7164",
+    "is_admin": false,
+    "team_id": "WARD",
+    "sub_skills": ["G-WARD", "ONKO_G"],
+    "std_absences": []
+  },
+  {
+    "employee_id": 7, 
+    "pin": "3098",
+    "is_admin": false,
+    "team_id": "GASTRO",
+    "sub_skills": ["ENDO_INTERV", "ENDO_BASIC", "AMB_PANC"],
+    "std_absences": []
+  },
+  {
+    "employee_id": 8, 
+    "pin": "8651",
+    "is_admin": false,
+    "team_id": "PULMO",
+    "sub_skills": ["BRONCHO", "AMB_P"],
+    "std_absences": []
+  },
+  {
+    "employee_id": 11, 
+    "pin": "1946",
+    "is_admin": false,
+    "team_id": "GASTRO",
+    "sub_skills": ["ENDO_INTERV", "ENDO_BASIC", "SONO", "AMB_IBD"],
+    "std_absences": []
+  },
+  {
+    "employee_id": 12, 
+    "pin": "5372",
+    "is_admin": false,
+    "team_id": "GASTRO",
+    "sub_skills": ["ENDO_INTERV", "ENDO_BASIC", "ONKO_G"],
+    "std_absences": ["Freitag"]
+  },
+  {
+    "employee_id": 13, 
+    "pin": "9285",
+    "is_admin": false,
+    "team_id": "PULMO",
+    "sub_skills": ["BRONCHO", "ONKO_P"],
+    "std_absences": ["Montag", "Dienstag"]
+  },
+  {
+    "employee_id": 14, 
+    "pin": "6403",
+    "is_admin": false,
+    "team_id": "PULMO",
+    "sub_skills": ["BRONCHO", "ONKO_P"],
+    "std_absences": ["Mittwoch"]
+  },
+  {
+    "employee_id": 15, 
+    "pin": "2718",
+    "is_admin": false,
+    "team_id": "GASTRO",
+    "sub_skills": ["ENDO_INTERV", "ENDO_BASIC", "SONO", "AMB_LIVER"],
+    "std_absences": []
+  },
+  {
+    "employee_id": 16, 
+    "pin": "8046",
+    "is_admin": false,
+    "team_id": "GASTRO",
+    "sub_skills": ["ENDO_INTERV", "ENDO_BASIC", "SONO"],
+    "std_absences": ["Mittwoch"]
+  },
+  {
+    "employee_id": 18, 
+    "pin": "3569",
+    "is_admin": false,
+    "team_id": "GASTRO",
+    "sub_skills": ["ENDO_INTERV", "ENDO_BASIC", "SONO", "AMB_IBD"],
+    "std_absences": ["Dienstag", "Donnerstag"]
+  },
+  {
+    "employee_id": 19, 
+    "pin": "7821",
+    "is_admin": false,
+    "team_id": "PULMO",
+    "sub_skills": ["BRONCHO", "AMB_CF"],
+    "std_absences": ["Montag"]
+  },
+  {
+    "employee_id": 21, 
+    "pin": "4607",
+    "is_admin": false,
+    "team_id": "GASTRO",
+    "sub_skills": ["ENDO_BASIC", "SONO", "ONKO_G"],
+    "std_absences": ["Montag"]
+  },
+  {
+    "employee_id": 23, 
+    "pin": "9153",
+    "is_admin": false,
+    "team_id": "GASTRO",
+    "sub_skills": ["ENDO_BASIC", "SONO", "AMB_LIVER"],
+    "std_absences": []
+  },
+  {
+    "employee_id": 24, 
+    "pin": "6284",
+    "is_admin": false,
+    "team_id": "PULMO",
+    "sub_skills": ["BRONCHO", "P-WARD", "AMB_CF"],
+    "std_absences": ["Donnerstag"]
+  },
+  {
+    "employee_id": 25, 
+    "pin": "1438",
+    "is_admin": false,
+    "team_id": "PULMO",
+    "sub_skills": ["BRONCHO", "P-WARD", "ONKO_P"],
+    "std_absences": []
+  },
+  {
+    "employee_id": 27, 
+    "pin": "5709",
+    "is_admin": false,
+    "team_id": "GASTRO",
+    "sub_skills": ["G-WARD", "ENDO_BASIC", "SONO", "AMB_LIVER"],
+    "std_absences": ["Dienstag"]
+  },
+  {
+    "employee_id": 31, 
+    "pin": "8362",
+    "is_admin": false,
+    "team_id": "GASTRO",
+    "sub_skills": ["G-WARD", "AMB_PANC"],
+    "std_absences": []
+  },
+  {
+    "employee_id": 33, 
+    "pin": "2495",
+    "is_admin": false,
+    "team_id": "GASTRO",
+    "sub_skills": ["G-WARD", "ONKO_G"],
+    "std_absences": []
+  },
+  {
+    "employee_id": 34, 
+    "pin": "6930",
+    "is_admin": false,
+    "team_id": "PULMO",
+    "sub_skills": ["P-WARD", "ONKO_P"],
+    "std_absences": []
+  },
+  {
+    "employee_id": 35, 
+    "pin": "4071",
+    "is_admin": false,
+    "team_id": "GASTRO",
+    "sub_skills": ["G-WARD", "SONO", "AMB_PANC"],
+    "std_absences": []
+  },
+  {
+    "employee_id": 38, 
+    "pin": "7586",
+    "is_admin": false,
+    "team_id": "WARD",
+    "sub_skills": ["G-WARD"],
+    "std_absences": []
+  }
+]

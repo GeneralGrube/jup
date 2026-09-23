@@ -1,0 +1,7 @@
+code,label,is_recreational_vacation
+VAC_REC,Erholungsurlaub,TRUE
+CONF,Kongress / Fortbildung,FALSE
+PAR_LEAVE,Elternzeit,FALSE
+SPEC_LEAVE,Sonderurlaub,FALSE
+COMP_TIME,Freizeitausgleich,FALSE
+ROTATION,Rotation,FALSE

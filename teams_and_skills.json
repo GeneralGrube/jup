@@ -1,0 +1,25 @@
+{
+  "teams": [
+    {"team_id": "GASTRO", "label": "Gastroenterologie", "min_employees": [6,7,6,7,4], "holiday_adjust": [0,-1,-1,-1,0]},
+    {"team_id": "PULMO", "label": "Pneumologie", "min_employees": [2,3,1,2,3], "holiday_adjust": [0,0,0,0,0]},
+    {"team_id": "WARD", "label": "Station", "min_employees": [6,6,6,6,6], "holiday_adjust": [0,0,0,0,0]}
+  ],
+  "sub_skills": [
+    {"skill_id": "P-WARD", "label": "Pulmostation", "min_employees": [2,2,2,2,2], "holiday_adjust": [0,0,0,0,0]},
+    {"skill_id": "G-WARD", "label": "Gastrostation", "min_employees": [4,4,4,4,4], "holiday_adjust": [0,0,0,0,0]},
+
+    {"skill_id": "ENDO_INTERV", "label": "Interventionelle Endoskopie", "min_employees": [1,1,1,1,1], "holiday_adjust": [0,0,0,0,0]},
+    {"skill_id": "ENDO_BASIC", "label": "Basis-Endoskopie", "min_employees": [1,2,2,2,1], "holiday_adjust": [0,-1,-1,-1,0]},
+    {"skill_id": "SONO", "label": "Ultraschall / Punktionen", "min_employees": [2,2,2,2,2], "holiday_adjust": [0,0,0,0,0]},
+    {"skill_id": "BRONCHO", "label": "Bronchoskopie", "min_employees": [1,1,1,1,1], "holiday_adjust": [0,0,0,0,0]},
+
+    {"skill_id": "CF", "label": "Mukoviszidoseambulanz", "min_employees": [0,1,0,0,1], "holiday_adjust": [0,0,0,0,0]},
+    {"skill_id": "ONKO_P", "label": "Pulmoonkologische Ambulanz", "min_employees": [0,1,0,0,1], "holiday_adjust": [0,0,0,0,0]},
+    {"skill_id": "AMB_P", "label": "Pneumologische Ambulanz", "min_employees": [1,0,0,1,0], "holiday_adjust": [0,0,0,0,0]},
+    
+    {"skill_id": "ONKO_G", "label": "Gastroonkologische Ambulanz", "min_employees": [1,1,0,1,0], "holiday_adjust": [0,0,0,0,0]},
+    {"skill_id": "AMB_IBD", "label": "CED Ambulanz", "min_employees": [0,1,1,0,0], "holiday_adjust": [0,0,0,0,0]},
+    {"skill_id": "AMB_PANC", "label": "Pankreas Ambulanz", "min_employees": [0,0,1,0,0], "holiday_adjust": [0,0,0,0,0]},
+    {"skill_id": "AMB_LIVER", "label": "Leberambulanz", "min_employees": [1,0,0,1,0], "holiday_adjust": [0,0,0,0,0]}
+  ]
+}
