@@ -38,6 +38,7 @@ SHEET_HEADERS = [
 ]
 
 
+@st.cache_data(ttl=60)
 def load_master_data() -> dict[str, Any]:
     employees = json.loads((BASE_DIR / "employees.json").read_text(encoding="utf-8"))
     teams = json.loads((BASE_DIR / "teams_and_skills.json").read_text(encoding="utf-8"))
@@ -200,14 +201,57 @@ def get_holiday_dates() -> set[date]:
     return {pd.to_datetime(row["date"]).date() for _, row in df.iterrows()}
 
 
-def get_blackout_ranges() -> list[tuple[date, date, str]]:
+def get_blackout_ranges() -> list[dict[str, Any]]:
     df = load_master_data()["blackout"]
-    ranges = []
+    ranges: list[dict[str, Any]] = []
     for _, row in df.iterrows():
-        start = pd.to_datetime(row["start_date"]).date()
-        end = pd.to_datetime(row["end_date"]).date()
-        ranges.append((start, end, str(row["reason"])))
+        team_value = row.get("team_id", "")
+        skill_value = row.get("skill_id", "")
+        ranges.append(
+            {
+                "start_date": pd.to_datetime(row["start_date"]).date(),
+                "end_date": pd.to_datetime(row["end_date"]).date(),
+                "reason": str(row["reason"]),
+                "team_id": str(team_value).strip() if pd.notna(team_value) else "",
+                "skill_id": str(skill_value).strip() if pd.notna(skill_value) else "",
+            }
+        )
     return ranges
+
+
+def blackout_applies_to_employee(
+    blackout: dict[str, Any], employee: dict[str, Any]
+) -> bool:
+    team_id = blackout["team_id"]
+    skill_id = blackout["skill_id"]
+    return (
+        (not team_id or str(employee.get("team_id", "")) == team_id)
+        and (
+            not skill_id
+            or skill_id in {str(skill) for skill in employee.get("sub_skills", [])}
+        )
+    )
+
+
+def blackout_applies_to_view(
+    blackout: dict[str, Any],
+    scope_type: str,
+    scope_id: str,
+    employee_ids: list[str],
+) -> bool:
+    if not blackout["team_id"] and not blackout["skill_id"]:
+        return True
+    if scope_type == "team":
+        return blackout["team_id"] == scope_id and not blackout["skill_id"]
+    if scope_type == "skill" and blackout["skill_id"] == scope_id:
+        if not blackout["team_id"]:
+            return True
+        employee_map = get_employee_map()
+        return any(
+            employee_map.get(employee_id, {}).get("team_id") == blackout["team_id"]
+            for employee_id in employee_ids
+        )
+    return False
 
 
 def workdays_in_range(start: date, end: date, holiday_dates: set[date] | None = None) -> int:
@@ -350,16 +394,31 @@ def save_entry(entry: dict[str, Any]) -> None:
 
 
 def delete_entry(entry_id: str) -> None:
+    pending = get_pending_entries()
     worksheet = get_vacation_worksheet()
     values = worksheet.get_all_values()
     entry_ids = [row[0] for row in values[1:] if row]
     if entry_id not in entry_ids:
-        raise ValueError(f"Cannot delete unknown vacation entry: {entry_id}")
+        pending_index = next(
+            (
+                index
+                for index, entry in enumerate(pending)
+                if entry["entry_id"] == entry_id
+            ),
+            None,
+        )
+        if pending_index is None:
+            raise ValueError(f"Cannot delete unknown vacation entry: {entry_id}")
+        pending.pop(pending_index)
+        return
     row_index = entry_ids.index(entry_id) + 2
     row = values[row_index - 1]
     row[8] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
     row[9] = True
     worksheet.update(f"A{row_index}:J{row_index}", [row[:10]], value_input_option="RAW")
+    st.session_state["pending_entries"] = [
+        entry for entry in pending if entry["entry_id"] != entry_id
+    ]
 
 
 def delete_employee_entries(employee_id: str, entries: list[dict[str, Any]]) -> None:
@@ -499,10 +558,17 @@ def validate_entry(employee_id: str, form: dict[str, Any], existing_entries: lis
         errors.append("Fehler: Der gewählte Zeitraum überschneidet sich mit einer bereits erfassten Abwesenheit. Bitte passen Sie die Daten an.")
 
     if form["priority"] in {"LOW", "PLACEHOLDER"}:
-        for blackout_start, blackout_end, reason in blackout_ranges:
-            if not (end < blackout_start or start > blackout_end):
+        employee = get_employee_map().get(str(employee_id), {})
+        for blackout in blackout_ranges:
+            if (
+                blackout_applies_to_employee(blackout, employee)
+                and not (
+                    end < blackout["start_date"]
+                    or start > blackout["end_date"]
+                )
+            ):
                 errors.append(
-                    f"Achtung: Der gewählte Zeitraum überschneidet sich mit einer Urlaubssperre ({reason}). Tage innerhalb dieser Sperre erfordern zwingend die Priorität 'Hoch'. Um nur die betroffenen Tage als 'Hoch' zu belasten, teilen Sie Ihren Urlaub bitte manuell in separate Einträge vor, während und nach der Sperre auf."
+                    f"Achtung: Der gewählte Zeitraum überschneidet sich mit einer Urlaubssperre ({blackout['reason']}). Tage innerhalb dieser Sperre erfordern zwingend die Priorität 'Hoch'. Um nur die betroffenen Tage als 'Hoch' zu belasten, teilen Sie Ihren Urlaub bitte manuell in separate Einträge vor, während und nach der Sperre auf."
                 )
                 break
 
@@ -590,8 +656,8 @@ def _day_background(target: date) -> str:
     holiday_dates = get_holiday_dates()
     if target in holiday_dates:
         return "#fce4d6"
-    for start, end, _ in get_blackout_ranges():
-        if _date_in_range(target, start, end):
+    for blackout in get_blackout_ranges():
+        if _date_in_range(target, blackout["start_date"], blackout["end_date"]):
             return "#f4cccc"
     for row in load_master_data()["school_holidays"].to_dict(orient="records"):
         if _date_in_range(
@@ -605,20 +671,65 @@ def _day_background(target: date) -> str:
     return "#ffffff"
 
 
+@st.cache_data(ttl=30)
 def availability_matrix(
     entries: list[dict[str, Any]],
     employee_ids: list[str],
     min_employees: list[int],
     holiday_adjust: list[int],
+    scope_type: str,
+    scope_id: str,
     display_mode: str,
     own_employee_id: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    employee_map = get_employee_map()
     employee_ids = sorted({str(employee_id) for employee_id in employee_ids})
     active_entries = [
         entry for entry in entries
         if not entry.get("is_deleted", False)
         and str(entry["employee_id"]) in employee_ids
     ]
+    holiday_dates = get_holiday_dates()
+    blackout_dates = {
+        current
+        for blackout in get_blackout_ranges()
+        if blackout_applies_to_view(
+            blackout, scope_type, scope_id, employee_ids
+        )
+        for current in date_range(
+            blackout["start_date"], blackout["end_date"]
+        )
+    }
+    school_holiday_dates = {
+        current
+        for row in load_master_data()["school_holidays"].to_dict(orient="records")
+        for current in date_range(
+            normalize_date(row["start_date"]),
+            normalize_date(row["end_date"]),
+        )
+    }
+    standard_absent_by_weekday: dict[int, set[str]] = {}
+    for employee_id in employee_ids:
+        for weekday in get_standard_absence_weekdays(
+            employee_map.get(employee_id, {})
+        ):
+            standard_absent_by_weekday.setdefault(weekday, set()).add(employee_id)
+
+    absent_by_date: dict[date, set[str]] = {}
+    own_priority_by_date: dict[date, str] = {}
+    year_start = date(PLANNING_YEAR, 1, 1)
+    year_end = date(PLANNING_YEAR, 12, 31)
+    for entry in active_entries:
+        employee_id = str(entry["employee_id"])
+        start = max(normalize_date(entry["start_date"]), year_start)
+        end = min(normalize_date(entry["end_date"]), year_end)
+        if start > end:
+            continue
+        for target in date_range(start, end):
+            absent_by_date.setdefault(target, set()).add(employee_id)
+            if employee_id == str(own_employee_id):
+                own_priority_by_date.setdefault(target, str(entry["priority"]))
+
     values: dict[str, list[Any]] = {}
     styles: dict[str, list[str]] = {}
     for month_number, month_name in enumerate(MONTHS, start=1):
@@ -631,57 +742,35 @@ def availability_matrix(
                 row_values.append(pd.NA)
                 row_styles.append("background-color: #f2f2f2; color: #999999;")
                 continue
-            holiday = target in get_holiday_dates()
+            holiday = target in holiday_dates
             weekday = target.weekday()
             required = min_employees[weekday] if weekday < 5 and not holiday else 0
-            if required and is_school_holiday(target):
+            if required and target in school_holiday_dates:
                 required = max(0, required + holiday_adjust[weekday])
             if target.weekday() >= 5 or holiday:
                 row_values.append(pd.NA)
                 row_styles.append("background-color: #d9d9d9; color: #777777;")
                 continue
-            standard_absent_ids = {
-                employee_id
-                for employee_id in employee_ids
-                if target.weekday()
-                in get_standard_absence_weekdays(
-                    get_employee_map().get(employee_id, {})
-                )
-            }
-            absent_ids = standard_absent_ids | {
-                str(entry["employee_id"])
-                for entry in active_entries
-                if _date_in_range(
-                    target,
-                    normalize_date(entry["start_date"]),
-                    normalize_date(entry["end_date"]),
-                )
-            }
+            absent_ids = standard_absent_by_weekday.get(weekday, set()) | absent_by_date.get(target, set())
             available = len(employee_ids) - len(absent_ids)
             difference = available - required
-            own_entry = next(
-                (
-                    entry for entry in active_entries
-                    if str(entry["employee_id"]) == str(own_employee_id)
-                    and _date_in_range(
-                        target,
-                        normalize_date(entry["start_date"]),
-                        normalize_date(entry["end_date"]),
-                    )
-                ),
-                None,
-            )
+            own_priority = own_priority_by_date.get(target)
             if required == 0:
                 background = "#d9d9d9"
                 foreground = "#777777"
             elif difference < 0:
                 background = "#ff0000"
                 foreground = "#ffffff"
-            elif own_entry:
-                background = get_palette(own_entry["priority"])
-                foreground = "#ffffff" if own_entry["priority"] in {"JOKER", "HIGH"} else "#12304a"
+            elif own_priority:
+                background = get_palette(own_priority)
+                foreground = "#ffffff" if own_priority in {"JOKER", "HIGH"} else "#12304a"
             else:
-                background = _day_background(target)
+                if target in blackout_dates:
+                    background = "#f4cccc"
+                elif target in school_holiday_dates:
+                    background = "#fff2cc"
+                else:
+                    background = "#ffffff"
                 foreground = "#222222"
             row_values.append(required if display_mode == "Bedarf" else available)
             row_styles.append(
@@ -705,6 +794,8 @@ def render_availability_table(
     employee_ids: list[str],
     min_employees: list[int],
     holiday_adjust: list[int],
+    scope_type: str,
+    scope_id: str,
     display_mode: str,
     own_employee_id: str | None = None,
 ) -> None:
@@ -717,6 +808,8 @@ def render_availability_table(
         employee_ids,
         min_employees,
         holiday_adjust,
+        scope_type,
+        scope_id,
         display_mode,
         own_employee_id,
     )
@@ -777,68 +870,169 @@ def render_employee_view(employee_id: str, all_entries: list[dict[str, Any]]) ->
         df.columns = ["ID", "Startdatum", "Enddatum", "Abwesenheit", "Priorität", "Arbeitstage"]
         st.dataframe(df, width='stretch')
 
-    st.subheader("Abwesenheit hinzufügen")
-    with st.form("absence_form"):
+    entry_options = [None] + [entry["entry_id"] for entry in entries]
+    selected_entry_id = st.selectbox(
+        "Abwesenheit zum Bearbeiten auswählen",
+        entry_options,
+        format_func=lambda entry_id: (
+            "Neue Abwesenheit"
+            if entry_id is None
+            else next(
+                (
+                    f"{entry['start_date']} bis {entry['end_date']} · "
+                    f"{get_absence_label(entry['absence_code'])} "
+                    f"({entry['entry_id'][:8]})"
+                    for entry in entries
+                    if entry["entry_id"] == entry_id
+                ),
+                str(entry_id),
+            )
+        ),
+        key="absence_to_edit",
+    )
+    selected_entry = next(
+        (entry for entry in entries if entry["entry_id"] == selected_entry_id),
+        None,
+    )
+    form_mode_key = selected_entry_id or "new"
+    st.subheader(
+        "Abwesenheit bearbeiten" if selected_entry else "Abwesenheit hinzufügen"
+    )
+    with st.form(f"absence_form_{form_mode_key}"):
         date_columns = st.columns(2)
         start_date = date_columns[0].date_input(
-            "Startdatum", value=date(PLANNING_YEAR, 1, 1),
+            "Startdatum",
+            value=(
+                normalize_date(selected_entry["start_date"])
+                if selected_entry
+                else date(PLANNING_YEAR, 1, 1)
+            ),
             min_value=date(PLANNING_YEAR, 1, 1), max_value=date(PLANNING_YEAR, 12, 31),
             format="DD.MM.YYYY",
+            key=f"absence_start_{form_mode_key}",
         )
         end_date = date_columns[1].date_input(
-            "Enddatum", value=date(PLANNING_YEAR, 1, 5),
+            "Enddatum",
+            value=(
+                normalize_date(selected_entry["end_date"])
+                if selected_entry
+                else date(PLANNING_YEAR, 1, 5)
+            ),
             min_value=date(PLANNING_YEAR, 1, 1), max_value=date(PLANNING_YEAR, 12, 31),
             format="DD.MM.YYYY",
+            key=f"absence_end_{form_mode_key}",
         )
         absence_options = get_absence_options()
+        absence_codes = [code for code, _ in absence_options]
         absence_code = date_columns[0].selectbox(
             "Abwesenheitstyp",
-            [code for code, _ in absence_options],
+            absence_codes,
             format_func=lambda code: get_absence_label(code),
+            index=(
+                absence_codes.index(selected_entry["absence_code"])
+                if selected_entry and selected_entry["absence_code"] in absence_codes
+                else 0
+            ),
+            key=f"absence_code_{form_mode_key}",
         )
+        selected_priority_label = PRIORITY_LABELS.get(
+            selected_entry["priority"], "Niedrig"
+        ) if selected_entry else "Niedrig"
         priority_label = date_columns[1].radio(
-            "Priorität", list(PRIORITY_FROM_LABEL), index=2, horizontal=True
+            "Priorität",
+            list(PRIORITY_FROM_LABEL),
+            index=list(PRIORITY_FROM_LABEL).index(selected_priority_label),
+            horizontal=True,
+            key=f"absence_priority_{form_mode_key}",
         )
         priority = PRIORITY_FROM_LABEL[priority_label]
-        add_absence = st.form_submit_button("Abwesenheit hinzufügen", width="stretch")
+        submit_absence = st.form_submit_button(
+            "Änderungen übernehmen"
+            if selected_entry
+            else "Abwesenheit hinzufügen",
+            width="stretch",
+        )
 
-    if add_absence:
+    if submit_absence:
         workday_count = workdays_in_range(start_date, end_date, get_holiday_dates())
         form = {
-            "entry_id": str(uuid.uuid4()),
+            "entry_id": (
+                selected_entry["entry_id"]
+                if selected_entry
+                else str(uuid.uuid4())
+            ),
             "employee_id": str(employee_id),
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
             "absence_code": absence_code,
             "priority": priority,
             "workdays_count": workday_count,
-            "is_submitted": False,
-            "last_modified_utc": "",
+            "is_submitted": (
+                selected_entry.get("is_submitted", False)
+                if selected_entry
+                else False
+            ),
+            "last_modified_utc": (
+                selected_entry.get("last_modified_utc", "")
+                if selected_entry
+                else ""
+            ),
             "is_deleted": False,
         }
-        errors = validate_entry(employee_id, form, all_entries)
+        errors = validate_entry(
+            employee_id,
+            form,
+            all_entries,
+            current_entry_id=selected_entry_id,
+        )
         if errors:
             for msg in errors:
                 st.error(msg)
         else:
-            get_pending_entries().append(form)
-            st.success("Abwesenheit wurde für diese Sitzung vorgemerkt. Bitte speichern Sie den Entwurf.")
+            pending = get_pending_entries()
+            pending_index = next(
+                (
+                    index
+                    for index, entry in enumerate(pending)
+                    if entry["entry_id"] == form["entry_id"]
+                ),
+                None,
+            )
+            if pending_index is None:
+                pending.append(form)
+            else:
+                pending[pending_index] = form
+            st.success(
+                "Änderung wurde vorgemerkt. Bitte speichern Sie den Entwurf."
+                if selected_entry
+                else "Abwesenheit wurde für diese Sitzung vorgemerkt. Bitte speichern Sie den Entwurf."
+            )
             st.rerun()
 
-    st.subheader("Abwesenheiten löschen")
-    if not entries:
-        st.info("Keine Abwesenheiten zum Löschen vorhanden.")
-    else:
-        delete_columns = st.columns(2)
-        with delete_columns[0]:
-            entry_id_to_delete = st.text_input("ID der Abwesenheit", placeholder="UUID eingeben", width="stretch")   
-        with delete_columns[1]:
+    with st.expander("Abwesenheiten löschen", expanded=False):
+        if not entries:
+            st.info("Keine Abwesenheiten zum Löschen vorhanden.")
+        else:
+            entry_id_to_delete = st.selectbox(
+                "Zu löschende Abwesenheit",
+                [entry["entry_id"] for entry in entries],
+                format_func=lambda entry_id: next(
+                    (
+                        f"{normalize_date(entry['start_date']).strftime('%d.%m.%Y')} bis "
+                        f"{normalize_date(entry['end_date']).strftime('%d.%m.%Y')} · "
+                        f"{get_absence_label(entry['absence_code'])} · "
+                        f"{PRIORITY_LABELS.get(entry['priority'], entry['priority'])} "
+                        f"({entry_id[:8]})"
+                        for entry in entries
+                        if entry["entry_id"] == entry_id
+                    ),
+                    str(entry_id),
+                ),
+                key="absence_to_delete",
+            )
             if st.button("Eine Abwesenheit löschen", width="stretch"):
-                if entry_id_to_delete in {entry["entry_id"] for entry in entries}:
-                    delete_single_entry_dialog(entry_id_to_delete)
-                else:
-                    st.error("Keine Abwesenheit mit dieser ID gefunden.")
-        if st.button("🔥 Alle meine Abwesenheiten löschen", width="stretch"):
+                delete_single_entry_dialog(entry_id_to_delete)
+            if st.button("🔥 Alle meine Abwesenheiten löschen", width="stretch"):
                 delete_all_entries_dialog(employee_id, entries)
     
     st.subheader("Abwesenheiten speichern")
@@ -872,6 +1066,7 @@ def render_employee_view(employee_id: str, all_entries: list[dict[str, Any]]) ->
             st.rerun()
         st.info("Es gibt keine ungespeicherten Änderungen.")
 
+    st.divider()
     st.subheader("Verfügbarkeit")
     display_mode = "Bedarf" if st.toggle(
         "Bedarf statt Verfügbarkeit anzeigen",
@@ -890,6 +1085,8 @@ def render_employee_view(employee_id: str, all_entries: list[dict[str, Any]]) ->
         team_employee_ids,
         get_min_employees("team", employee_team),
         get_holiday_adjust("team", employee_team),
+        "team",
+        employee_team,
         display_mode,
         own_employee_id=employee_id,
     )
@@ -908,6 +1105,8 @@ def render_employee_view(employee_id: str, all_entries: list[dict[str, Any]]) ->
         skill_employee_ids,
         get_min_employees("skill", sub_skill),
         get_holiday_adjust("skill", sub_skill),
+        "skill",
+        sub_skill,
         display_mode,
         own_employee_id=employee_id,
     )
@@ -968,6 +1167,8 @@ def render_admin_view(all_entries: list[dict[str, Any]]) -> None:
             sorted(selected_employee_ids),
             get_min_employees("team", selected_team),
             get_holiday_adjust("team", selected_team),
+            "team",
+            selected_team,
             display_mode,
         )
 

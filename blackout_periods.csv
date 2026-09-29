@@ -1,3 +1,6 @@
-start_date,end_date,reason
-2027-09-13,2027-09-18,Viszeralmedizin
-2027-12-20,2027-12-31,Kritische Jahresendbesetzung
+start_date,end_date,reason,team_id,skill_id
+2027-03-03,2027-03-06,DGP,PULMO,
+2027-09-11,2027-09-14,ERS,PULMO,
+2027-09-13,2027-09-18,Viszeralmedizin,GASTRO,
+2027-10-16,2027-10-19,UEGW,GASTRO,
+2027-12-20,2027-12-31,Kritische Jahresendbesetzung,,
