@@ -174,5 +174,45 @@
     "team_id": "WARD",
     "sub_skills": ["G-WARD"],
     "std_absences": []
+  },
+  {
+    "employee_id": 56, 
+    "pin": "5894",
+    "is_admin": false,
+    "team_id": "WARD",
+    "sub_skills": ["G-WARD"],
+    "std_absences": []
+  },
+  {
+    "employee_id": 61, 
+    "pin": "2748",
+    "is_admin": false,
+    "team_id": "WARD",
+    "sub_skills": ["G-WARD"],
+    "std_absences": []
+  },
+  {
+    "employee_id": 62, 
+    "pin": "8456",
+    "is_admin": false,
+    "team_id": "WARD",
+    "sub_skills": ["P-WARD"],
+    "std_absences": []
+  },
+  {
+    "employee_id": 65, 
+    "pin": "2790",
+    "is_admin": false,
+    "team_id": "WARD",
+    "sub_skills": ["G-WARD"],
+    "std_absences": []
+  },
+  {
+    "employee_id": 66, 
+    "pin": "3578",
+    "is_admin": false,
+    "team_id": "WARD",
+    "sub_skills": ["G-WARD"],
+    "std_absences": []
   }
 ]
