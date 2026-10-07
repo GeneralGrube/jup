@@ -214,5 +214,13 @@
     "team_id": "WARD",
     "sub_skills": ["G-WARD"],
     "std_absences": []
+  },
+  {
+    "employee_id": 67, 
+    "pin": "7234",
+    "is_admin": false,
+    "team_id": "WARD",
+    "sub_skills": ["G-WARD"],
+    "std_absences": []
   }
 ]
