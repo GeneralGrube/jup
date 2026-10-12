@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import json
 import uuid
 from datetime import date, datetime, timedelta
@@ -648,6 +649,22 @@ def get_palette(priority: str) -> str:
     return colors.get(priority, "#808080")
 
 
+def availability_scale_color(absence_count: int, absence_tolerance: int) -> str:
+    """Color the safe absence margin from green (none) toward yellow (limit)."""
+    green = (46, 125, 50)
+    yellow = (255, 235, 59)
+    if absence_tolerance <= 0:
+        return "#2e7d32" if absence_count == 0 else "#f44336"
+    progress = min(absence_count / absence_tolerance, 1)
+    channels = tuple(
+        round(start + (end - start) * progress)
+        for start, end in zip(green, yellow)
+    )
+    if absence_count > absence_tolerance:
+        return "#f44336"
+    return "#{:02x}{:02x}{:02x}".format(*channels)
+
+
 def _date_in_range(target: date, start: date, end: date) -> bool:
     return start <= target <= end
 
@@ -681,7 +698,9 @@ def availability_matrix(
     scope_id: str,
     display_mode: str,
     own_employee_id: str | None = None,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+    highlight_deficits: bool = True,
+    reveal_employee_ids: bool = False,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     employee_map = get_employee_map()
     employee_ids = sorted({str(employee_id) for employee_id in employee_ids})
     active_entries = [
@@ -717,6 +736,7 @@ def availability_matrix(
 
     absent_by_date: dict[date, set[str]] = {}
     own_priority_by_date: dict[date, str] = {}
+    absence_details_by_date: dict[date, list[tuple[str, str, str]]] = {}
     year_start = date(PLANNING_YEAR, 1, 1)
     year_end = date(PLANNING_YEAR, 12, 31)
     for entry in active_entries:
@@ -727,21 +747,52 @@ def availability_matrix(
             continue
         for target in date_range(start, end):
             absent_by_date.setdefault(target, set()).add(employee_id)
+            absence_details_by_date.setdefault(target, []).append(
+                (
+                    employee_id,
+                    str(entry["absence_code"]),
+                    str(entry["priority"]),
+                )
+            )
             if employee_id == str(own_employee_id):
                 own_priority_by_date.setdefault(target, str(entry["priority"]))
 
     values: dict[str, list[Any]] = {}
     styles: dict[str, list[str]] = {}
+    tooltips: dict[str, list[str]] = {}
     for month_number, month_name in enumerate(MONTHS, start=1):
         row_values: list[Any] = []
         row_styles: list[str] = []
+        row_tooltips: list[str] = []
         for day_number in range(1, 32):
             try:
                 target = date(PLANNING_YEAR, month_number, day_number)
             except ValueError:
                 row_values.append(pd.NA)
                 row_styles.append("background-color: #f2f2f2; color: #999999;")
+                row_tooltips.append("")
                 continue
+            details = [
+                (
+                    f"{employee_id}: {absence_code} ({priority})"
+                    if reveal_employee_ids
+                    else f"Abwesenheit: {absence_code} ({priority})"
+                )
+                for employee_id, absence_code, priority
+                in absence_details_by_date.get(target, [])
+            ]
+            for employee_id in sorted(
+                standard_absent_by_weekday.get(target.weekday(), set())
+            ):
+                details.append(
+                    f"{employee_id}: Standardabwesenheit"
+                    if reveal_employee_ids
+                    else "Standardabwesenheit"
+                )
+            row_tooltips.append(
+                f"{target.strftime('%d.%m.%Y')}\n"
+                + ("\n".join(details) if details else "Keine Abwesenheiten eingetragen")
+            )
             holiday = target in holiday_dates
             weekday = target.weekday()
             required = min_employees[weekday] if weekday < 5 and not holiday else 0
@@ -753,31 +804,53 @@ def availability_matrix(
                 continue
             absent_ids = standard_absent_by_weekday.get(weekday, set()) | absent_by_date.get(target, set())
             available = len(employee_ids) - len(absent_ids)
+            absence_count = len(absent_ids)
             difference = available - required
             own_priority = own_priority_by_date.get(target)
             if required == 0:
                 background = "#d9d9d9"
                 foreground = "#777777"
-            elif difference < 0:
-                background = "#ff0000"
-                foreground = "#ffffff"
             elif own_priority:
                 background = get_palette(own_priority)
-                foreground = "#ffffff" if own_priority in {"JOKER", "HIGH"} else "#12304a"
+                foreground = (
+                    "#ffffff" if own_priority in {"JOKER", "HIGH"} else "#12304a"
+                )
+            elif difference < 0 and highlight_deficits:
+                background = "#ff0000"
+                foreground = "#ffffff"
             else:
-                if target in blackout_dates:
+                baseline_absence_ids = standard_absent_by_weekday.get(
+                    weekday, set()
+                )
+                baseline_available = len(employee_ids) - len(baseline_absence_ids)
+                absence_tolerance = max(0, baseline_available - required)
+                planned_absence_count = len(
+                    absent_by_date.get(target, set()) - baseline_absence_ids
+                )
+                if highlight_deficits:
+                    background = availability_scale_color(
+                        planned_absence_count, absence_tolerance
+                    )
+                elif target in blackout_dates:
                     background = "#f4cccc"
                 elif target in school_holiday_dates:
                     background = "#fff2cc"
                 else:
                     background = "#ffffff"
                 foreground = "#222222"
-            row_values.append(required if display_mode == "Bedarf" else available)
+            if display_mode == "Bedarf":
+                displayed_value = required
+            elif display_mode == "Verfügbarkeit":
+                displayed_value = available
+            else:
+                displayed_value = absence_count
+            row_values.append(displayed_value)
             row_styles.append(
                 f"background-color: {background}; color: {foreground}; text-align: center;"
             )
         values[month_name] = row_values
         styles[month_name] = row_styles
+        tooltips[month_name] = row_tooltips
     columns = [str(day) for day in range(1, 32)]
     value_frame = pd.DataFrame.from_dict(
         values, orient="index", columns=columns
@@ -785,7 +858,10 @@ def availability_matrix(
     style_frame = pd.DataFrame.from_dict(
         styles, orient="index", columns=columns
     )
-    return value_frame, style_frame
+    tooltip_frame = pd.DataFrame.from_dict(
+        tooltips, orient="index", columns=columns
+    )
+    return value_frame, style_frame, tooltip_frame
 
 
 def render_availability_table(
@@ -798,12 +874,14 @@ def render_availability_table(
     scope_id: str,
     display_mode: str,
     own_employee_id: str | None = None,
+    highlight_deficits: bool = True,
+    reveal_employee_ids: bool = False,
 ) -> None:
-    st.markdown(f"#### {title}")
+    st.markdown(f"#### {title} · {display_mode}")
     if not employee_ids:
         st.info("Für diese Auswahl sind keine Mitarbeitenden vorhanden.")
         return
-    values, styles = availability_matrix(
+    values, styles, tooltips = availability_matrix(
         entries,
         employee_ids,
         min_employees,
@@ -812,17 +890,55 @@ def render_availability_table(
         scope_id,
         display_mode,
         own_employee_id,
+        highlight_deficits,
+        reveal_employee_ids,
     )
-    st.dataframe(
-        values.style.apply(lambda _: styles, axis=None),
-        width='stretch',
-        height=470,
+    table_rows = []
+    for month in values.index:
+        day_cells = []
+        for day in values.columns:
+            value = values.at[month, day]
+            cell_value = "" if pd.isna(value) else html.escape(str(value))
+            tooltip = html.escape(
+                str(tooltips.at[month, day]), quote=True
+            ).replace("\n", "&#10;")
+            style = html.escape(str(styles.at[month, day]), quote=True)
+            day_cells.append(
+                f'<td title="{tooltip}" style="{style}">{cell_value}</td>'
+            )
+        table_rows.append(
+            f"<tr><th scope='row'>{html.escape(str(month))}</th>"
+            + "".join(day_cells)
+            + "</tr>"
+        )
+
+    header_cells = "".join(
+        f"<th>{html.escape(str(day))}</th>" for day in values.columns
     )
+    table_html = (
+        '<div style="overflow:auto;max-height:520px;width:100%;">'
+        '<table class="jup-availability-table" '
+        'style="border-collapse:collapse;white-space:nowrap;min-width:100%;">'
+        "<thead><tr><th>Monat</th>"
+        + header_cells
+        + "</tr></thead><tbody>"
+        + "".join(table_rows)
+        + "</tbody></table></div>"
+        "<style>"
+        ".jup-availability-table th{position:sticky;top:0;background:#f0f2f6;z-index:2;"
+        "padding:6px;border:1px solid #ddd;text-align:center;}"
+        ".jup-availability-table th:first-child{left:0;z-index:3;}"
+        ".jup-availability-table td{padding:5px 7px;border:1px solid #ddd;text-align:center;}"
+        ".jup-availability-table tbody th{left:0;}"
+        "</style>"
+    )
+    st.markdown(table_html, unsafe_allow_html=True)
     st.markdown(
         """
         <div style="display:flex; flex-wrap:wrap; gap:8px 16px; margin:6px 0 12px;">
           <strong>Legende</strong>
-          <span style="background:#ffffff;border:1px solid #999;padding:2px 8px;border-radius:4px;">Ansicht: Bedarf oder Verfügbarkeit</span>
+          <span style="background:#2e7d32;color:white;padding:2px 8px;border-radius:4px;">Keine geplanten Abwesenheiten</span>
+          <span style="background:#ffeb3b;color:#222;padding:2px 8px;border-radius:4px;">Personalpuffer fast ausgeschöpft</span>
           <span style="background:#ff0000;color:white;padding:2px 8px;border-radius:4px;">Bedarf unterschritten</span>
           <span style="background:#d9d9d9;color:#777;padding:2px 8px;border-radius:4px;">Kein Bedarf</span>
           <span style="background:#1a237e;color:white;padding:2px 8px;border-radius:4px;">Eigener Joker</span>
@@ -1068,11 +1184,12 @@ def render_employee_view(employee_id: str, all_entries: list[dict[str, Any]]) ->
 
     st.divider()
     st.subheader("Verfügbarkeit")
-    display_mode = "Bedarf" if st.toggle(
-        "Bedarf statt Verfügbarkeit anzeigen",
-        value=False,
+    display_mode = st.radio(
+        "Anzeigen",
+        ["Verfügbarkeit", "Bedarf"],
+        horizontal=True,
         key="availability_display_mode",
-    ) else "Verfügbarkeit"
+    )
     employee_map = get_employee_map()
     employee_team = employee_map[str(employee_id)]["team_id"]
     team_employee_ids = [
@@ -1089,6 +1206,7 @@ def render_employee_view(employee_id: str, all_entries: list[dict[str, Any]]) ->
         employee_team,
         display_mode,
         own_employee_id=employee_id,
+        highlight_deficits=False,
     )
     sub_skill = st.selectbox(
         "Kompetenz auswählen",
@@ -1109,37 +1227,24 @@ def render_employee_view(employee_id: str, all_entries: list[dict[str, Any]]) ->
         sub_skill,
         display_mode,
         own_employee_id=employee_id,
+        highlight_deficits=False,
     )
 
 
 def render_admin_view(all_entries: list[dict[str, Any]]) -> None:
     st.header("Administration")
     employee_map = get_employee_map()
-    employee_selector = st.selectbox("Mitarbeiter", ["ALLE"] + sorted({str(e["employee_id"]) for e in all_entries}))
+    employee_selector = st.selectbox(
+        "Mitarbeiter",
+        ["ALLE"] + sorted(employee_map),
+    )
     team_ids = [str(team["team_id"]) for team in load_master_data()["teams"]["teams"]]
     team_options = {"Alle Teams": "ALLE", **{get_team_label(team_id): team_id for team_id in team_ids}}
     team_label = st.selectbox("Team", list(team_options))
     team_filter = team_options[team_label]
     skills = sorted({skill for employee in employee_map.values() for skill in employee.get("sub_skills", [])})
     selected_skills = st.multiselect("Kompetenzen", skills, default=[])
-    visible = all_entries
-    if employee_selector != "ALLE":
-        visible = [e for e in visible if str(e["employee_id"]) == employee_selector]
-    if team_filter != "ALLE":
-        visible = [
-            e for e in visible if str(employee_map.get(str(e["employee_id"]), {}).get("team_id")) == team_filter
-        ]
-    if selected_skills:
-        visible = [
-            e for e in visible if any(skill in employee_map.get(str(e["employee_id"]), {}).get("sub_skills", []) for skill in selected_skills)
-        ]
 
-    st.dataframe(pd.DataFrame(visible), width='stretch')
-    display_mode = "Bedarf" if st.toggle(
-        "Bedarf statt Verfügbarkeit anzeigen",
-        value=False,
-        key="admin_availability_display_mode",
-    ) else "Verfügbarkeit"
     selected_employee_ids = set(employee_map)
     if employee_selector != "ALLE":
         selected_employee_ids = {employee_selector}
@@ -1157,19 +1262,129 @@ def render_admin_view(all_entries: list[dict[str, Any]]) -> None:
                 for skill in selected_skills
             )
         }
-    if selected_employee_ids:
-        selected_team = team_filter
-        if selected_team == "ALLE":
-            selected_team = employee_map[next(iter(selected_employee_ids))]["team_id"]
+
+    selected_ids = sorted(selected_employee_ids)
+    if selected_ids:
+        labels = [
+            f"{employee_id} ({get_team_label(employee_map[employee_id]['team_id'])})"
+            for employee_id in selected_ids
+        ]
+        st.info(
+            f"Betroffene Mitarbeiter ({len(selected_ids)}): "
+            + ", ".join(labels)
+        )
+    else:
+        st.info("Die Filter ergeben keine betroffenen Mitarbeiter.")
+
+    employees_with_entries = {
+        str(entry["employee_id"])
+        for entry in all_entries
+        if not entry.get("is_deleted", False)
+    }
+    missing_entry_ids = [
+        employee_id
+        for employee_id in selected_ids
+        if employee_id not in employees_with_entries
+    ]
+    if missing_entry_ids:
+        st.warning(
+            "Für folgende betroffene Mitarbeiter wurden noch keine Abwesenheiten "
+            "oder sonstigen Einträge erfasst: "
+            + ", ".join(missing_entry_ids)
+            + ". Sie werden dennoch in die Verfügbarkeitsberechnung einbezogen."
+        )
+
+    visible = all_entries
+    if employee_selector != "ALLE":
+        visible = [e for e in visible if str(e["employee_id"]) == employee_selector]
+    if team_filter != "ALLE":
+        visible = [
+            e for e in visible if str(employee_map.get(str(e["employee_id"]), {}).get("team_id")) == team_filter
+        ]
+    if selected_skills:
+        visible = [
+            e for e in visible if any(skill in employee_map.get(str(e["employee_id"]), {}).get("sub_skills", []) for skill in selected_skills)
+        ]
+
+    st.dataframe(pd.DataFrame(visible), width='stretch')
+    display_mode = st.radio(
+        "Anzeigen",
+        ["Abwesenheiten", "Bedarf"],
+        horizontal=True,
+        key="admin_availability_display_mode",
+    )
+    selected_team_ids = sorted(
+        {
+            str(employee_map[employee_id]["team_id"])
+            for employee_id in selected_ids
+        }
+    )
+    for selected_team in selected_team_ids:
+        selected_team_employees = {
+            employee_id
+            for employee_id in selected_ids
+            if str(employee_map[employee_id]["team_id"]) == selected_team
+        }
+        team_employee_ids = {
+            employee_id
+            for employee_id, employee in employee_map.items()
+            if str(employee.get("team_id")) == selected_team
+        }
+        staffing_scope_complete = selected_team_employees == team_employee_ids
+        if not staffing_scope_complete:
+            st.caption(
+                f"Die Auswahl für {get_team_label(selected_team)} umfasst nicht "
+                "das gesamte Team. Die Defizitmarkierung für den Team-Mindestbedarf "
+                "ist deshalb deaktiviert."
+            )
         render_availability_table(
-            "Verfügbarkeit der Auswahl",
+            f"Team: {get_team_label(selected_team)}",
             all_entries,
-            sorted(selected_employee_ids),
+            sorted(selected_team_employees),
             get_min_employees("team", selected_team),
             get_holiday_adjust("team", selected_team),
             "team",
             selected_team,
             display_mode,
+            own_employee_id=(
+                selected_ids[0] if len(selected_ids) == 1 else None
+            ),
+            highlight_deficits=staffing_scope_complete,
+            reveal_employee_ids=True,
+        )
+    for selected_skill in selected_skills:
+        skill_employee_ids = sorted(
+            employee_id
+            for employee_id in selected_ids
+            if selected_skill
+            in employee_map.get(employee_id, {}).get("sub_skills", [])
+        )
+        all_skill_employee_ids = {
+            employee_id
+            for employee_id, employee in employee_map.items()
+            if selected_skill in employee.get("sub_skills", [])
+        }
+        skill_scope_complete = set(skill_employee_ids) == all_skill_employee_ids
+        if not skill_scope_complete:
+            st.caption(
+                f"Die Auswahl für {get_skill_label(selected_skill)} umfasst nicht "
+                "alle für diese Kompetenz qualifizierten Mitarbeitenden. "
+                "Die Defizitmarkierung ist deshalb deaktiviert."
+            )
+        render_availability_table(
+            f"Kompetenz: {get_skill_label(selected_skill)}",
+            all_entries,
+            skill_employee_ids,
+            get_min_employees("skill", selected_skill),
+            get_holiday_adjust("skill", selected_skill),
+            "skill",
+            selected_skill,
+            display_mode,
+            own_employee_id=(
+                skill_employee_ids[0] if len(skill_employee_ids) == 1 else None
+            ),
+            highlight_deficits=skill_scope_complete,
+            reveal_employee_ids=True,
         )
 
 

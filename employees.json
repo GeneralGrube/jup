@@ -50,9 +50,9 @@
   {
     "employee_id": 13, 
     "pin": "9285",
-    "is_admin": false,
+    "is_admin": true,
     "team_id": "PULMO",
-    "sub_skills": ["BRONCHO", "ONKO_P"],
+    "sub_skills": ["BRONCHO", "ONKO_P", "AMB_P"],
     "std_absences": ["Montag", "Dienstag"]
   },
   {
