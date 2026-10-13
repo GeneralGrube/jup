@@ -13,7 +13,7 @@
     {"skill_id": "SONO", "label": "Ultraschall / Punktionen", "min_employees": [2,2,2,2,2], "holiday_adjust": [0,0,0,0,0]},
     {"skill_id": "BRONCHO", "label": "Bronchoskopie", "min_employees": [1,1,1,1,1], "holiday_adjust": [0,0,0,0,0]},
 
-    {"skill_id": "CF", "label": "Mukoviszidoseambulanz", "min_employees": [0,1,0,0,1], "holiday_adjust": [0,0,0,0,0]},
+    {"skill_id": "AMB_CF", "label": "Mukoviszidoseambulanz", "min_employees": [0,1,0,0,1], "holiday_adjust": [0,0,0,0,0]},
     {"skill_id": "ONKO_P", "label": "Pulmoonkologische Ambulanz", "min_employees": [0,1,0,0,1], "holiday_adjust": [0,0,0,0,0]},
     {"skill_id": "AMB_P", "label": "Pneumologische Ambulanz", "min_employees": [1,0,0,1,0], "holiday_adjust": [0,0,0,0,0]},
     
