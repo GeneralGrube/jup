@@ -974,7 +974,7 @@ def render_employee_view(employee_id: str, all_entries: list[dict[str, Any]]) ->
     )
     col4.metric(
         "Speicherstatus",
-        "⚠️ Ungespeicherte Änderungen"
+        "⚠️ ungespeichert"
         if has_unsaved_changes
         else "✅ gespeichert",
     )
