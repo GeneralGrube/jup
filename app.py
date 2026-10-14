@@ -111,6 +111,13 @@ def get_absence_meta() -> dict[str, dict[str, Any]]:
     return {row["code"]: row for row in rows}
 
 
+def is_recreational_vacation(absence_code: str) -> bool:
+    value = get_absence_meta().get(absence_code, {}).get(
+        "is_recreational_vacation", False
+    )
+    return str(value).strip().lower() == "true"
+
+
 def get_absence_label(code: str) -> str:
     return str(get_absence_meta().get(code, {}).get("label", code))
 
@@ -474,16 +481,14 @@ def get_year_calendar() -> pd.DataFrame:
 
 def compute_employee_statistics(employee_id: str, entries: list[dict[str, Any]]) -> dict[str, Any]:
     employee = get_employee_map().get(str(employee_id), {})
-    absence_meta = get_absence_meta()
     holiday_dates = get_holiday_dates()
-    all_recreational = []
     high_priority_days = 0
     joker_entry: dict[str, Any] | None = None
     for entry in entries:
         if entry["is_deleted"] or str(entry["employee_id"]) != str(employee_id):
             continue
-        if entry["absence_code"] in {"VAC_REC", "COMP_TIME"}:
-            all_recreational.append(entry)
+        if not is_recreational_vacation(entry["absence_code"]):
+            continue
         try:
             workdays = int(entry["workdays_count"])
         except (TypeError, ValueError):
@@ -502,7 +507,7 @@ def compute_employee_statistics(employee_id: str, entries: list[dict[str, Any]])
         for entry in entries
         if not entry["is_deleted"]
         and str(entry["employee_id"]) == str(employee_id)
-        and absence_meta.get(entry["absence_code"], {}).get("is_recreational_vacation") in {True, "TRUE", "true"}
+        and is_recreational_vacation(entry["absence_code"])
     )
     par_leave_seen = any(
         str(entry["absence_code"]).upper() == "PAR_LEAVE"
@@ -558,7 +563,8 @@ def validate_entry(employee_id: str, form: dict[str, Any], existing_entries: lis
     if overlap:
         errors.append("Fehler: Der gewählte Zeitraum überschneidet sich mit einer bereits erfassten Abwesenheit. Bitte passen Sie die Daten an.")
 
-    if form["priority"] in {"LOW", "PLACEHOLDER"}:
+    recreational_vacation = is_recreational_vacation(form["absence_code"])
+    if recreational_vacation and form["priority"] in {"LOW", "PLACEHOLDER"}:
         employee = get_employee_map().get(str(employee_id), {})
         for blackout in blackout_ranges:
             if (
@@ -573,10 +579,7 @@ def validate_entry(employee_id: str, form: dict[str, Any], existing_entries: lis
                 )
                 break
 
-    if form["priority"] == "JOKER" and form["absence_code"] != "VAC_REC":
-        errors.append("Ein Joker kann nur für Erholungsurlaub verwendet werden.")
-
-    if form["priority"] == "JOKER":
+    if recreational_vacation and form["priority"] == "JOKER":
         if (end - start).days + 1 > 14:
             errors.append(
                 "Ein Joker darf maximal 14 aufeinanderfolgende Kalendertage umfassen. Wenn Sie einen längeren zusammenhängenden Urlaub planen, legen Sie die maximal 14 Tage als Joker-Eintrag an und erfassen Sie die verbleibenden Tage bitte als separaten Eintrag (z. B. mit Priorität 'Hoch' oder 'Niedrig')."
@@ -585,6 +588,7 @@ def validate_entry(employee_id: str, form: dict[str, Any], existing_entries: lis
             str(e["employee_id"]) == str(employee_id)
             and e["entry_id"] != current_entry_id
             and e["priority"] == "JOKER"
+            and is_recreational_vacation(e["absence_code"])
             for e in existing_entries
         ):
             errors.append("Es darf pro Mitarbeiter nur ein Joker-Eintrag pro Jahr geben.")
@@ -592,11 +596,13 @@ def validate_entry(employee_id: str, form: dict[str, Any], existing_entries: lis
     high_total = sum(
         int(e["workdays_count"]) if e["priority"] in {"JOKER", "HIGH"} else 0
         for e in existing_entries
-        if str(e["employee_id"]) == str(employee_id) and e["entry_id"] != current_entry_id
+        if str(e["employee_id"]) == str(employee_id)
+        and e["entry_id"] != current_entry_id
+        and is_recreational_vacation(e["absence_code"])
     )
-    if form["priority"] in {"JOKER", "HIGH"}:
+    if recreational_vacation and form["priority"] in {"JOKER", "HIGH"}:
         high_total += workdays_in_range(start, end, holiday_dates)
-    if high_total > 20:
+    if recreational_vacation and high_total > 20:
         errors.append("Die Gesamtzahl der Arbeitstage für Joker und Hoch überschreitet das Limit von 20 Tagen.")
 
     return errors
@@ -612,12 +618,12 @@ def build_recreational_summary(employee_id: str, entries: list[dict[str, Any]]) 
             continue
         if entry["absence_code"] == "PAR_LEAVE":
             par_leave = True
-        if entry["absence_code"] == "VAC_REC":
+        if is_recreational_vacation(entry["absence_code"]):
             workdays += int(entry["workdays_count"])
-        if entry["priority"] in {"JOKER", "HIGH"}:
-            high_days += int(entry["workdays_count"])
-        if entry["priority"] == "JOKER":
-            joker = entry
+            if entry["priority"] in {"JOKER", "HIGH"}:
+                high_days += int(entry["workdays_count"])
+            if entry["priority"] == "JOKER":
+                joker = entry
     return {
         "planned_recreation_days": workdays,
         "high_priority_days": high_days,
