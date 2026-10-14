@@ -964,10 +964,20 @@ def render_availability_table(
 def render_employee_view(employee_id: str, all_entries: list[dict[str, Any]]) -> None:
     st.header(f"Willkommen Mitarbeiter {employee_id}")
     summary = compute_employee_statistics(employee_id, all_entries)
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     col1.metric("Erholungsurlaub", f"{summary['recreation_days']} / 30 Tage")
     col2.metric("Joker + Hoch", f"{summary['high_priority_days']} / 20 Tage")
     col3.metric("Joker-Status", "Zugewiesen" if summary["joker_entry"] else "Verfügbar")
+    has_unsaved_changes = any(
+        str(entry["employee_id"]) == str(employee_id)
+        for entry in get_pending_entries()
+    )
+    col4.metric(
+        "Speicherstatus",
+        "⚠️ Ungespeicherte Änderungen"
+        if has_unsaved_changes
+        else "✅ Plan online gespeichert",
+    )
 
     if summary["recreation_days"] > 30:
         st.warning(f"Sie haben {summary['recreation_days']} Tage Erholungsurlaub geplant und überschreiten damit den üblichen Anspruch von 30 Tagen.")
