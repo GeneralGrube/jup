@@ -976,7 +976,7 @@ def render_employee_view(employee_id: str, all_entries: list[dict[str, Any]]) ->
         "Speicherstatus",
         "⚠️ Ungespeicherte Änderungen"
         if has_unsaved_changes
-        else "✅ Plan online gespeichert",
+        else "✅ gespeichert",
     )
 
     if summary["recreation_days"] > 30:
