@@ -1444,7 +1444,7 @@ def download_vacation_data() -> None:
         "workdays_count", "is_submitted", "last_modified_utc", "is_deleted"
     ]
     csv_data = df[export_columns].to_csv(index=False, sep=";", encoding="utf-8-sig")
-    st.sidebardownload_button(
+    st.download_button(
         label="Abwesenheitsdaten als CSV herunterladen",
         data=csv_data,
         file_name=f"abwesenheitsdaten_{PLANNING_YEAR}.csv",
