@@ -1422,7 +1422,34 @@ def login_screen() -> str | None:
         else:
             st.error("Ungültiger PIN.")
     return st.session_state.get("employee_id")
-
+    
+def download_vacation_data() -> None:
+    st.header("Datenexport")
+    all_entries = fetch_all_entries()
+    employee_map = get_employee_map()
+    df = pd.DataFrame(all_entries)
+    if df.empty:
+        st.info("Keine Abwesenheitsdaten zum Exportieren vorhanden.")
+        return
+    df["employee_name"] = df["employee_id"].map(
+        lambda eid: employee_map.get(str(eid), {}).get("name", str(eid))
+    )
+    df["start_date"] = pd.to_datetime(df["start_date"]).dt.strftime("%d.%m.%Y")
+    df["end_date"] = pd.to_datetime(df["end_date"]).dt.strftime("%d.%m.%Y")
+    df["absence_label"] = df["absence_code"].map(get_absence_label)
+    df["priority_label"] = df["priority"].map(lambda value: PRIORITY_LABELS.get(value, value))
+    export_columns = [
+        "entry_id", "employee_id", "employee_name", "start_date", "end_date",
+        "absence_code", "absence_label", "priority", "priority_label",
+        "workdays_count", "is_submitted", "last_modified_utc", "is_deleted"
+    ]
+    csv_data = df[export_columns].to_csv(index=False, sep=";", encoding="utf-8-sig")
+    st.sidebardownload_button(
+        label="Abwesenheitsdaten als CSV herunterladen",
+        data=csv_data,
+        file_name=f"abwesenheitsdaten_{PLANNING_YEAR}.csv",
+        mime="text/csv",
+    )
 
 def main() -> None:
     st.set_page_config(layout="wide")
@@ -1436,6 +1463,9 @@ def main() -> None:
 
     if is_admin and st.sidebar.checkbox("Admin mode"):
         render_admin_view(all_entries)
+        return
+    elif is_admin and st.sidebar.checkbox("Datenexport"):
+        download_vacation_data()
         return
 
     render_employee_view(employee_id, all_entries)
